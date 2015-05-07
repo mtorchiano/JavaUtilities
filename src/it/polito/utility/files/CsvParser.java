@@ -91,7 +91,7 @@ import static java.util.Comparator.*;
  *      }
  *      </pre>
  * <p>
- * <b>Warning</b>: this class has been designed so that each thread uses a separate instance, created though {@link #newInstance()}.
+ * <b>Warning</b>: this class has been designed so that each thread uses a separate instance, created though {@link #createInstance(Characteristics... properties)}.
  * 
  * 
  * @author Marco Torchiano
@@ -107,6 +107,20 @@ public class CsvParser {
 	private boolean useCachedUrl = true; // indicates whether a local cache of the url should be used
 	
 	private CsvParser(Characteristics... properties){
+		processCharacteristics(properties);
+		if(!detectSeparator)
+			throw new IllegalArgumentException(this.getClass() + ": MANUAL_SEPARATOR cannot be specified without explicitly providing a separator.");
+		if(!headerLine){
+			throw new IllegalArgumentException(this.getClass() + ": cannot specify NO_HEADER without MANUAL_SEPARATOR.");
+		}
+	}  // this class is meant to be instantiated through at factory method.
+	private CsvParser(char separator, Characteristics... properties){ // this class is meant to be instantiated through at factory method.
+		processCharacteristics(properties);
+		setSeparator( separator );
+		detectSeparator = false;
+	} 
+	
+	private void processCharacteristics(Characteristics... properties){
 		for(Characteristics c : properties){
 			switch(c){
 			case MANUAL_SEPARATOR: detectSeparator = false;
@@ -117,15 +131,11 @@ public class CsvParser {
 								break;
 			}
 		}
-	}  // this class is meant to be instantiated through at factory method.
-	private CsvParser(char separator, Characteristics... properties){ // this class is meant to be instantiated through at factory method.
-		this(properties);
-		detectSeparator = false;
-		setSeparator( separator );
-	}  
+	}
+	
 	/**
 	 * 
-	 * Characteristics indicating the properties of a {@link CvsParser}.
+	 * Characteristics indicating the properties of a {@link CsvParser}.
 	 *
 	 */
 	public static enum Characteristics {
@@ -150,7 +160,7 @@ public class CsvParser {
 	 * 
 	 * @return a new CsvParser object
 	 */
-	public static CsvParser newInstance(Characteristics... properties){
+	public static CsvParser createInstance(Characteristics... properties){
 		return new CsvParser(properties);
 	}
 
@@ -165,7 +175,7 @@ public class CsvParser {
 	 * @param separator the separator character to be used by this parser
 	 * @return a new CsvParser object
 	 */
-	public static CsvParser newInstance(char separator,Characteristics... properties){
+	public static CsvParser createInstance(char separator,Characteristics... properties){
 		return new CsvParser(separator,properties);
 	}
 
@@ -200,17 +210,6 @@ public class CsvParser {
 		return headerLine;
 	}
 	
-	/**
-	 * Sets the {@code headerLine} option.
-	 * 
-	 * When it is true the first line in the file is assumed to contain the header
-	 * with the column names and not actual data 
-	 * 
-	 * @param headerLine the new value for the {@code headerLine} option.
-	 */
-	public void setHeaderLine(boolean headerLine) {
-		this.headerLine = headerLine;
-	}
 	
 	/**
 	 * Checks the {@code useCachedUrl} property.
@@ -225,18 +224,6 @@ public class CsvParser {
 		return useCachedUrl;
 	}
 	
-	/**
-	 * Sets the {@code useCachedUrl} property.
-	 * 
-	 * When the property is true (default) opening a url
-	 * actually stores a local cache copy (if not already present) 
-	 * and opens it.
-	 * 
-	 * @param useCachedUrl the new value of the property
-	 */
-	public void setUseCachedUrl(boolean useCachedUrl) {
-		this.useCachedUrl = useCachedUrl;
-	}
 	
 	/**
 	 * Check the value of the detectSeparator property.
@@ -250,17 +237,6 @@ public class CsvParser {
 		return detectSeparator;
 	}
 	
-	/**
-	 * Set the value of the {@code detectSeparator} property.
-	 * 
-	 * When the property is true the parser will attempt detecting the 
-	 * separator used in the file automatically.
-	 * 
-	 * @param detectSeparator
-	 */
-	public void setDetectSeparator(boolean detectSeparator) {
-		this.detectSeparator = detectSeparator;
-	}
 	
 	/**
 	 * Returns the stream of rows from a CSV file, the elements are named
@@ -283,7 +259,11 @@ public class CsvParser {
 	 * @throws IOException in case of IO errors
 	 */
 	public Stream<Map<String,String>> openNamedRowsUrl(String url) throws IOException{
-		return openNamedRows(cachedUrl(url));
+		if(useCachedUrl){
+			return openNamedRows(cachedUrl(url));
+		}else{
+			return openNamedRows((new URL(url)).openStream());
+		}
 	}
 
 	/**
@@ -349,7 +329,12 @@ public class CsvParser {
 	 * @throws IOException in case of IO errors
 	 */
 	public Stream<List<String>> openRowsUrl(String url) throws IOException{
-		return openRows(cachedUrl(url));
+		if(useCachedUrl){
+			return openRows(cachedUrl(url));
+		}else{
+			return openRows((new URL(url)).openStream());
+		}
+
 	}
 
 	/**

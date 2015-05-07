@@ -15,8 +15,7 @@ public class TestCsvParser extends TestCase {
 		//String url = "http://softeng.polito.it/courses/05CBI/Open%20Data%20-%20Scuole%20Piemontesi%20.csv";
 
 
-		CsvParser parser = CsvParser.newInstance(';');
-		parser.setDetectSeparator(false);
+		CsvParser parser = CsvParser.createInstance(';',CsvParser.Characteristics.MANUAL_SEPARATOR);
 
 		Collection<String> province =
 		parser.openNamedRowsUrl(urlSemicolon)
@@ -35,8 +34,7 @@ public class TestCsvParser extends TestCase {
 		//String url = "http://softeng.polito.it/courses/05CBI/Open%20Data%20-%20Scuole%20Piemontesi%20.csv";
 
 
-		CsvParser parser = CsvParser.newInstance();
-		parser.setDetectSeparator(false);
+		CsvParser parser = CsvParser.createInstance();
 		Collection<String> province =
 		parser.openNamedRowsUrl(urlColon)
 		.map( row -> row.get("Provincia") )
@@ -55,9 +53,8 @@ public class TestCsvParser extends TestCase {
 		//String url = "http://softeng.polito.it/courses/05CBI/Open%20Data%20-%20Scuole%20Piemontesi%20.csv";
 
 
-		CsvParser parser = CsvParser.newInstance();
+		CsvParser parser = CsvParser.createInstance();
 		parser.setSeparator(',');
-		parser.setDetectSeparator(true);
 		
 		Collection<String> province =
 		parser.openNamedRowsUrl(urlSemicolon)
@@ -77,7 +74,7 @@ public class TestCsvParser extends TestCase {
 		
 		String line = "AA,BB,CC";
 		
-		CsvParser parser = CsvParser.newInstance();
+		CsvParser parser = CsvParser.createInstance();
 
 		assertTrue(parser.guessSeparator(line));
 		
@@ -85,7 +82,7 @@ public class TestCsvParser extends TestCase {
 
 		 line = "AA;BB;CC";
 		
-		 parser = CsvParser.newInstance();
+		 parser = CsvParser.createInstance();
 
 		assertTrue(parser.guessSeparator(line));
 		
