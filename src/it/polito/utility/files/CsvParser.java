@@ -9,15 +9,19 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.URL;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 import static java.util.stream.Collectors.*;
+import static java.util.Comparator.*;
 
 /**
  * The class provides the methods to read the rows of a CSV (Comma Separated Values)
@@ -95,33 +99,74 @@ import static java.util.stream.Collectors.*;
  *
  */
 public class CsvParser {
+	private final static Character[] separators = {',',';','\t',':'};
 	
 	private char separator = ','; // the element separator character used in the CSV file
+	private boolean detectSeparator = true; // indicates whether the separator must be detected automatically
 	private boolean headerLine = true; // indicates the first line in the file is a header line
 	private boolean useCachedUrl = true; // indicates whether a local cache of the url should be used
 	
-	private CsvParser(){}  // this class is meant to be instantiated through at factory method.
-	private CsvParser(char separator){ // this class is meant to be instantiated through at factory method.
-		this.separator = separator;
+	private CsvParser(Characteristics... properties){
+		for(Characteristics c : properties){
+			switch(c){
+			case MANUAL_SEPARATOR: detectSeparator = false;
+									break;
+			case NO_HEADER: headerLine = false;
+								break;
+			case NO_URL_CACHE: useCachedUrl = false;
+								break;
+			}
+		}
+	}  // this class is meant to be instantiated through at factory method.
+	private CsvParser(char separator, Characteristics... properties){ // this class is meant to be instantiated through at factory method.
+		this(properties);
+		detectSeparator = false;
+		setSeparator( separator );
 	}  
+	/**
+	 * 
+	 * Characteristics indicating the properties of a {@link CvsParser}.
+	 *
+	 */
+	public static enum Characteristics {
+		/**
+		 * Indicates the separator is set manually and not automatically detected by the parser on the basis of the header line
+		 */
+		MANUAL_SEPARATOR,
+		/**
+		 * Indicates the CVS file does not contain any header line
+		 */
+		NO_HEADER,
+		/**
+		 * Indicates that when opening a URL no local cache has to be created
+		 */
+		NO_URL_CACHE
+	}
 	
 	/**
 	 * Factory method to instantiate a new CsvParser object
 	 * 
+	 * @param properties additional (optional) properties for the new CvsParser
+	 * 
 	 * @return a new CsvParser object
 	 */
-	public static CsvParser newInstance(){
-		return new CsvParser();
+	public static CsvParser newInstance(Characteristics... properties){
+		return new CsvParser(properties);
 	}
 
 	/**
-	 * Factory method to instantiate a new CsvParser object
+	 * Factory method to instantiate a new CsvParser object.
 	 * 
+	 * A predefined element separator will be used. 
+	 * The automatic separator detection is disable in this case, 
+	 * as if a {@link Characteristics#MANUAL_SEPARATOR} is passed among the properties.
+	 * 
+	 * @param properties additional (optional) properties for the new CvsParser
 	 * @param separator the separator character to be used by this parser
 	 * @return a new CsvParser object
 	 */
-	public static CsvParser newInstance(char separator){
-		return new CsvParser(separator);
+	public static CsvParser newInstance(char separator,Characteristics... properties){
+		return new CsvParser(separator,properties);
 	}
 
 	/**
@@ -192,6 +237,31 @@ public class CsvParser {
 	public void setUseCachedUrl(boolean useCachedUrl) {
 		this.useCachedUrl = useCachedUrl;
 	}
+	
+	/**
+	 * Check the value of the detectSeparator property.
+	 * 
+	 * When the property is true the parser will attempt detecting the 
+	 * separator used in the file automatically.
+	 * 
+	 * @return the value of the property
+	 */
+	public boolean detectSeparator() {
+		return detectSeparator;
+	}
+	
+	/**
+	 * Set the value of the {@code detectSeparator} property.
+	 * 
+	 * When the property is true the parser will attempt detecting the 
+	 * separator used in the file automatically.
+	 * 
+	 * @param detectSeparator
+	 */
+	public void setDetectSeparator(boolean detectSeparator) {
+		this.detectSeparator = detectSeparator;
+	}
+	
 	/**
 	 * Returns the stream of rows from a CSV file, the elements are named
 	 * according to the column names defined in the header row.
@@ -230,6 +300,11 @@ public class CsvParser {
 		}
 		BufferedReader reader = new BufferedReader(new InputStreamReader(input));
 		String firstLine = reader.readLine();
+		if(detectSeparator){
+			if(!guessSeparator(firstLine)){
+				throw new IOException("Cannot detect separator.");
+			}
+		}else
 		if(firstLine.indexOf(separator)==-1){
 			throw new IOException("The header line does not contain any separator character ('" + separator + "')");
 		}
@@ -290,7 +365,17 @@ public class CsvParser {
 	 */
 	public Stream<List<String>> openRows(InputStream input) throws IOException{
 		BufferedReader reader = new BufferedReader(new InputStreamReader(input));
-		if(headerLine) reader.readLine(); // skip first line containing the headers.
+		if(headerLine){
+			String firstLine = reader.readLine(); // skip first line containing the headers.
+			if(detectSeparator){
+				if(!guessSeparator(firstLine)){
+					throw new IOException("Cannot detect separator.");
+				}
+			}else
+				if(firstLine.indexOf(separator)==-1){
+					throw new IOException("The header line does not contain any separator character ('" + separator + "')");
+				}
+		}
 		return reader.lines().map(
 					line -> parseCsvLine(line)
 				)
@@ -335,7 +420,17 @@ public class CsvParser {
 	 */
 	public List<List<String>> loadRows(InputStream input) throws IOException{
 		BufferedReader reader = new BufferedReader(new InputStreamReader(input));
-		if(headerLine) reader.readLine(); // skip first line containing the headers.
+		if(headerLine){
+			String firstLine = reader.readLine(); // skip first line containing the headers.
+			if(detectSeparator){
+				if(!guessSeparator(firstLine)){
+					throw new IOException("Cannot detect separator.");
+				}
+			}else
+			if(firstLine.indexOf(separator)==-1){
+				throw new IOException("The header line does not contain any separator character ('" + separator + "')");
+			}
+		}
 		return reader.lines().map(
 					line -> parseCsvLine(line)
 				)
@@ -379,11 +474,16 @@ public class CsvParser {
 	 */
 	public List<Map<String,String>> loadNamedRows(InputStream input) throws IOException{
 		BufferedReader reader = new BufferedReader(new InputStreamReader(input));
-		String headerLine = reader.readLine();
-		if(headerLine.indexOf(separator)==-1){
+		String firstLine = reader.readLine();
+		if(detectSeparator){
+			if(!guessSeparator(firstLine)){
+				throw new IOException("Cannot detect separator.");
+			}
+		}else
+		if(firstLine.indexOf(separator)==-1){
 			throw new IOException("The header line does not contain any separator character ('" + separator + "')");
 		}
-		final List<String>headers = parseCsvLine(headerLine);
+		final List<String>headers = parseCsvLine(firstLine);
 		return reader.lines().map(
 				line -> parseCsvLine(line).stream()
 						.collect((Supplier<Map<String,String>>)LinkedHashMap::new,
@@ -450,5 +550,35 @@ public class CsvParser {
 			elements.remove(elements.size()-1);
 		}
 		return elements;
+	}
+	
+    boolean guessSeparator(String line){
+		Function<Character,Integer> countOccurrences = sep -> line.replaceAll("[^"+sep+"]+", "").length();
+
+		Optional<Character> detected =
+		Arrays.stream(separators)
+		.collect(groupingBy(countOccurrences))
+		.entrySet().stream()
+//		.peek(System.out::println)
+		.collect(maxBy(comparing(Map.Entry::getKey)))
+//		.map( e -> { System.out.println("max:" + e); return e; })
+		.filter( e -> e.getKey()>0 && e.getValue().size()==1 )
+		.map( e -> e.getValue().get(0) )
+		;
+
+//		Optional<Character> detected =
+//		Arrays.stream(separators)
+//		.collect(groupingBy(countOccurrences))
+//		.entrySet().stream()
+//		.sorted(comparing(Map.Entry::getKey,reverseOrder())) // Note: comparing(Map.Entry::getKey).reversed() is not inferred corretly!!
+//		.limit(1)
+//		.filter( e -> e.getKey()>0 && e.getValue().size()==1 )
+//		.map(e -> e.getValue().get(0))
+//		.findFirst()
+//		;
+		
+		detected.ifPresent( this::setSeparator );
+
+		return detected.isPresent();
 	}
 }
