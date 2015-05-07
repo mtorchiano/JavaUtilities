@@ -9,25 +9,59 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.URL;
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
+import static java.util.stream.Collectors.*;
+
 /**
  * The class provides the methods to read the rows of a CSV (Comma Separated Values)
  * file from a file or from a URL (caching the contents in a local file).
- * 
- * The rows can be read in two different ways:
+ * <p>
+ * The sequence of rows can be returned in two ways:
  * <ul>
- * <li> using the column names provided in the header row (the first row), in this case
+ * <li>as a {@link java.util.stream.Stream} using the {@code open..} methods or
+ * <li>as a {@link java.util.List} using the {@code load} methods.
+ * </ul>
+ * The individual rows can be represented in two different ways:
+ * <ul>
+ * <li> <b>Named</b>: using the column names provided in the header row (the first row), in this case
  *      each row will be encoded as a {@code Map<String,String>} mapping the column name to the row element.
- *      See: {@link #openNamedStream(String filePath)}, {@link #openNamedStream(InputStream input)},
- *      and {@link #openNamedStreamUrl(String url)}.
- *      <p>
- *      Example:
+ *      This is the return type for all the {@code openNamed..} and {@code loadNamed} methods.
+ * <li> <b>Positional</b>: using a positional encoding, in this case each row will be returned as a
+ *      {@code List<String>} where each row element is stored in its relative position.
+ *      This is the return type for all the methods without {@code Named} in their names.
+ * </ul>
+ * In addition the possible source of the CSV content can be:
+ * <ul>
+ * <li> a file whose path is provided as a String,
+ * <li> a url provided as a string argument to the {@code ..Url()} methods, or
+ * <li> an {@link java.io.InputStream}.
+ * </ul>
+ * <table style="border:1px solid;" cellpadding="5px" cellspacing="0" >
+ * <caption>Summary of CSV reading methods</caption>
+ * <tr><th><th><th class="colFirst" >Positional<th class="colLast">Named
+ * <tr class="altColor"><th rowspan="3"  class="colFirst">{@code Stream}
+ * 		<th>File<td>{@link #openRows(String filePath)}<td>{@link #openNamedRows(String filePath)}
+ * <tr class="rowColor"><th>Url<td>{@link #openRowsUrl(String url)}<td>{@link #openNamedRowsUrl(String url)}
+ * <tr class="altColor"><th>InputStream<td>{@link #openRows(InputStream input)}<td>{@link #openNamedRows(InputStream input)}
+ * <tr><td>&nbsp;
+ * <tr class="altColor"><th rowspan="3"  class="colFirst">{@code List}
+ * 		<th>File<td>{@link #loadRows(String filePath)}<td>{@link #loadNamedRows(String filePath)}
+ * <tr class="rowColor"><th>Url<td>{@link #loadRowsUrl(String url)}<td>{@link #loadNamedRowsUrl(String url)}
+ * <tr class="altColor"><th>InputStream<td>{@link #loadRows(InputStream input)}<td>{@link #loadNamedRows(InputStream input)}
+ * </table>
+ *
+ * <h3>Examples</h3>
+ * 
+ * Using the Stream versions, loading the CSV content from a url,
+ * we can use the named version to print the unique values found 
+ * in the {@code Anno} column as follows:
  *      <pre>
  *      {@code
  *      CsvParser parser = CvsParser.newInstance();
@@ -38,14 +72,9 @@ import java.util.stream.Stream;
  *      	  ;
  *      }
  *      </pre>
- *      Prints the unique values found in the {@code Anno} column.
- *      
- * <li> using a positional encoding, in this case each row will be returned as a
- *      {@code List<String>} where each row element is stored in its relative position.
- *      See: {@link #openStream(InputStream filePath)}, {@link #openStream(InputStream input)},
- *      and {@link #openNamedStream(String url)}.
- *      <p>
- *      Example:
+ * Using the Stream versions, loading the CSV content from a url,
+ * we can use the named version to the sorted unique values found in the second column 
+ * as follows:
  *      <pre>
  *      {@code 
  *      CsvParser parser = CvsParser.newInstance();
@@ -57,20 +86,19 @@ import java.util.stream.Stream;
  *      		;
  *      }
  *      </pre>
- *      Prints the sorted unique values found in the second column.
- *      
- * </ul>
- * 
+ * <p>
  * <b>Warning</b>: this class has been designed so that each thread uses a separate instance, created though {@link #newInstance()}.
  * 
+ * 
  * @author Marco Torchiano
- * @version 1.0
+ * @version 1.1
  *
  */
 public class CsvParser {
 	
 	private char separator = ','; // the element separator character used in the CSV file
 	private boolean headerLine = true; // indicates the first line in the file is a header line
+	private boolean useCachedUrl = true; // indicates whether a local cache of the url should be used
 	
 	private CsvParser(){}  // this class is meant to be instantiated through at factory method.
 	private CsvParser(char separator){ // this class is meant to be instantiated through at factory method.
@@ -78,7 +106,7 @@ public class CsvParser {
 	}  
 	
 	/**
-	 * Factory method used to instantiate a new CsvParser object
+	 * Factory method to instantiate a new CsvParser object
 	 * 
 	 * @return a new CsvParser object
 	 */
@@ -87,7 +115,7 @@ public class CsvParser {
 	}
 
 	/**
-	 * Factory method used to instantiate a new CsvParser object
+	 * Factory method to instantiate a new CsvParser object
 	 * 
 	 * @param separator the separator character to be used by this parser
 	 * @return a new CsvParser object
@@ -98,12 +126,15 @@ public class CsvParser {
 
 	/**
 	 * Retrieves the current separator character. The default character is ','.
+	 * 
 	 * @return separator character
 	 */
 	public char getSeparator(){return separator;}
+	
 	/**
-	 * Set the new separator character.
+	 * Set a new separator character.
 	 * It can be used to parse CSV files using different separators, e.g. ';'
+	 * 
 	 * @param sep the new separator character
 	 */
 	public void setSeparator(char sep){ 
@@ -135,16 +166,42 @@ public class CsvParser {
 	public void setHeaderLine(boolean headerLine) {
 		this.headerLine = headerLine;
 	}
+	
 	/**
-	 * Returns a stream of rows from a CSV file, the elements are named
+	 * Checks the {@code useCachedUrl} property.
+	 * 
+	 * When the property is true (default) opening a url
+	 * actually stores a local cache copy (if not already present) 
+	 * and opens it.
+	 * 
+	 * @return the current value of the property
+	 */
+	public boolean useCachedUrl() {
+		return useCachedUrl;
+	}
+	
+	/**
+	 * Sets the {@code useCachedUrl} property.
+	 * 
+	 * When the property is true (default) opening a url
+	 * actually stores a local cache copy (if not already present) 
+	 * and opens it.
+	 * 
+	 * @param useCachedUrl the new value of the property
+	 */
+	public void setUseCachedUrl(boolean useCachedUrl) {
+		this.useCachedUrl = useCachedUrl;
+	}
+	/**
+	 * Returns the stream of rows from a CSV file, the elements are named
 	 * according to the column names defined in the header row.
 	 * 
 	 * @param filePath the path of the local CSV file
 	 * @return a stream of {@code Map}s each corresponding to a line
 	 * @throws IOException in case of IO errors
 	 */
-	public Stream<Map<String,String>> openNamedStream(String filePath) throws IOException {
-		return openNamedStream(new FileInputStream(filePath));
+	public Stream<Map<String,String>> openNamedRows(String filePath) throws IOException {
+		return openNamedRows(new FileInputStream(filePath));
 	}
 
 	/**
@@ -155,8 +212,8 @@ public class CsvParser {
 	 * @return a stream of {@code Map}s each corresponding to a line
 	 * @throws IOException in case of IO errors
 	 */
-	public Stream<Map<String,String>> openNamedStreamUrl(String url) throws IOException{
-		return openNamedStream(cachedUrl(url));
+	public Stream<Map<String,String>> openNamedRowsUrl(String url) throws IOException{
+		return openNamedRows(cachedUrl(url));
 	}
 
 	/**
@@ -167,17 +224,20 @@ public class CsvParser {
 	 * @return a stream of {@code Map}s each corresponding to a line
 	 * @throws IOException in case of IO errors
 	 */
-	public Stream<Map<String,String>> openNamedStream(InputStream input) throws IOException{
+	public Stream<Map<String,String>> openNamedRows(InputStream input) throws IOException{
+		if(!headerLine){ // no header line is expected so names cannot be found.
+			throw new IOException("Cannot return a named row stream when the headerLine property is set to true.");
+		}
 		BufferedReader reader = new BufferedReader(new InputStreamReader(input));
-		String headerLine = reader.readLine();
-		if(headerLine.indexOf(separator)==-1){
+		String firstLine = reader.readLine();
+		if(firstLine.indexOf(separator)==-1){
 			throw new IOException("The header line does not contain any separator character ('" + separator + "')");
 		}
-		final List<String>headers = parseCsvLine(headerLine);
+		final List<String>headers = parseCsvLine(firstLine);
 		return reader.lines().map(
 				line -> parseCsvLine(line).stream()
 						//.map(String::trim)
-						.collect(HashMap::new,
+						.collect(LinkedHashMap::new,
 								(rowMap,element) -> rowMap.put(headers.get(rowMap.size()),element),
 								(rm1,rm2) -> rm1.putAll(rm2)
 						)
@@ -186,18 +246,19 @@ public class CsvParser {
 	}
 	
 	/**
-	 * Returns a stream of rows from a CSV file, the elements are 
+	 * Returns a stream of rows from a CSV file. 
+	 * The elements inside the row are 
 	 * access by position.
 	 * 
 	 * If the {@code headerLine} is {@code true} the first line is skipped
-	 * as it should not contain actual data. 
+	 * as it does not contain actual data. 
 	 * 
 	 * @param filePath the path of the local CSV file
 	 * @return a stream of {@code List}s each corresponding to a line
 	 * @throws IOException in case of IO errors
 	 */
-	public Stream<List<String>> openStream(String filePath) throws IOException{
-		return openStream(new FileInputStream(filePath));
+	public Stream<List<String>> openRows(String filePath) throws IOException{
+		return openRows(new FileInputStream(filePath));
 	}
 
 	
@@ -206,14 +267,14 @@ public class CsvParser {
 	 * access by position.
 	 * 
 	 * If the {@code headerLine} is {@code true} the first line is skipped
-	 * as it should not contain actual data. 
+	 * as it should not contain actual data.
 	 * 
 	 * @param url the URL of the resource with CSV content
 	 * @return a stream of {@code List}s each corresponding to a line
 	 * @throws IOException in case of IO errors
 	 */
-	public Stream<List<String>> openStreamUrl(String url) throws IOException{
-		return openStream(cachedUrl(url));
+	public Stream<List<String>> openRowsUrl(String url) throws IOException{
+		return openRows(cachedUrl(url));
 	}
 
 	/**
@@ -227,7 +288,7 @@ public class CsvParser {
 	 * @return a stream of {@code List}s each corresponding to a line
 	 * @throws IOException in case of IO errors
 	 */
-	public Stream<List<String>> openStream(InputStream input) throws IOException{
+	public Stream<List<String>> openRows(InputStream input) throws IOException{
 		BufferedReader reader = new BufferedReader(new InputStreamReader(input));
 		if(headerLine) reader.readLine(); // skip first line containing the headers.
 		return reader.lines().map(
@@ -235,7 +296,106 @@ public class CsvParser {
 				)
 				;
 	}
+	
+	
+	/**
+	 * Load the rows of a CSV file into a {@code List}.
+	 * 
+	 * The result is a list of rows, each row is stored in a list of strings.
+	 * 
+	 * @param filePath the path of the CSV file
+	 * @return a {@code List} of {@code List<String>}s each representing a row
+	 * @throws IOException in case of IO errors
+	 */
+	public List<List<String>> loadRows(String filePath) throws IOException{
+		return loadRows(new FileInputStream(filePath));
+	}
 
+	/**
+	 * Load the rows of a CSV resource found at the given URL into a {@code List}.
+	 * 
+	 * The result is a list of rows, each row is stored in a list of strings.
+	 * 
+	 * @param url the URL of the resource with CSV content
+	 * @return a {@code List} of {@code List<String>}s each representing a row
+	 * @throws IOException in case of IO errors
+	 */
+	public List<List<String>> loadRowsUrl(String url) throws IOException{
+		return loadRows(cachedUrl(url));
+	}
+
+	/**
+	 * Load the rows of a CSV content into a {@code List}.
+	 * 
+	 * The result is a list of rows, each row is stored in a list of strings.
+	 * 
+	 * @param input the input stream linked to a CSV content
+	 * @return a {@code List} of {@code List<String>}s each representing a row
+	 * @throws IOException in case of IO errors
+	 */
+	public List<List<String>> loadRows(InputStream input) throws IOException{
+		BufferedReader reader = new BufferedReader(new InputStreamReader(input));
+		if(headerLine) reader.readLine(); // skip first line containing the headers.
+		return reader.lines().map(
+					line -> parseCsvLine(line)
+				)
+				.collect(toList())
+				;
+	}
+
+	/**
+	 * Load the rows of a CSV file into a {@code List}.
+	 * 
+	 * The result is a list of rows, each row is stored in a map having the column names from the heading as keys.
+	 * 
+	 * @param filePath the path of the CSV file
+	 * @return a {@code List} of {@code Map<String,String>}s each representing a row
+	 * @throws IOException in case of IO errors
+	 */
+	public List<List<String>> loadNamedRows(String filePath) throws IOException{
+		return loadRows(new FileInputStream(filePath));
+	}
+
+	/**
+	 * Load the rows of a CSV resource found at the given URL into a {@code List}.
+	 * 
+	 * The result is a list of rows, each row is stored in a map having the column names from the heading as keys.
+	 * 
+	 * @param url the URL of the resource with CSV content
+	 * @return a {@code List} of {@code Map<String,String>}s each representing a row
+	 * @throws IOException in case of IO errors
+	 */
+	public List<List<String>> loadNamedRowsUrl(String url) throws IOException{
+		return loadRows(cachedUrl(url));
+	}
+	/**
+	 * Load the rows of a CSV content into a {@code List}.
+	 * 
+	 * The result is a list of rows, each row is stored in a map having the column names from the heading as keys.
+	 * 
+	 * @param input the input stream linked to a CSV content
+	 * @return a {@code List} of {@code Map<String,String>}s each representing a row
+	 * @throws IOException in case of IO errors
+	 */
+	public List<Map<String,String>> loadNamedRows(InputStream input) throws IOException{
+		BufferedReader reader = new BufferedReader(new InputStreamReader(input));
+		String headerLine = reader.readLine();
+		if(headerLine.indexOf(separator)==-1){
+			throw new IOException("The header line does not contain any separator character ('" + separator + "')");
+		}
+		final List<String>headers = parseCsvLine(headerLine);
+		return reader.lines().map(
+				line -> parseCsvLine(line).stream()
+						.collect((Supplier<Map<String,String>>)LinkedHashMap::new,
+								(rowMap,element) -> rowMap.put(headers.get(rowMap.size()),element),
+								(rm1,rm2) -> rm1.putAll(rm2)
+						)
+				)
+				.collect(toList())
+				;
+	}
+
+	// ------------------------------- INTERNAL METHODS -----------------------------------------------
 	// IO support methods
 	/**
 	 * General utility method to create a cache copy of a URL content
