@@ -68,7 +68,7 @@ import static java.util.Comparator.*;
  * in the {@code Anno} column as follows:
  *      <pre>
  *      {@code
- *      CsvParser parser = CvsParser.newInstance();
+ *      CsvParser parser = CvsParser.createInstance();
  *      parser.openNamedStreamUrl(url) 
  *      	  .map( row -> row.get("Anno") )
  *      	  .distinct()
@@ -81,7 +81,7 @@ import static java.util.Comparator.*;
  * as follows:
  *      <pre>
  *      {@code 
- *      CsvParser parser = CvsParser.newInstance();
+ *      CsvParser parser = CvsParser.createInstance();
  *      parser.openNamedStreamUrl(url) 
  *      		.map( row -> row.get(1) )
  *      		.distinct()
@@ -91,7 +91,8 @@ import static java.util.Comparator.*;
  *      }
  *      </pre>
  * <p>
- * <b>Warning</b>: this class has been designed so that each thread uses a separate instance, created though {@link #createInstance(Characteristics... properties)}.
+ * <b>Warning</b>: this class has been designed so that each thread uses a separate 
+ * instance, created though {@link #createInstance(Characteristics... properties)}.
  * 
  * 
  * @author Marco Torchiano
@@ -458,7 +459,7 @@ public class CsvParser {
 	 * @throws IOException in case of IO errors
 	 */
 	public List<Map<String,String>> loadNamedRows(InputStream input) throws IOException{
-		BufferedReader reader = new BufferedReader(new InputStreamReader(input));
+		BufferedReader reader = new BufferedReader(new InputStreamReader(input,"ISO-8859-1"));
 		String firstLine = reader.readLine();
 		if(detectSeparator){
 			if(!guessSeparator(firstLine)){
@@ -525,10 +526,10 @@ public class CsvParser {
 		Matcher m = p.matcher(line);
 		while(m.find()){
 			if(m.group(2)!=null){
-				elements.add(m.group(2).trim());
+				elements.add(m.group(2).trim().replaceAll("\"\"", "\""));
 			}
 			if(m.group(4)!=null){
-				elements.add(m.group(1).trim());
+				elements.add(m.group(1).trim().replaceAll("\"\"", "\""));
 			}
 		}
 		if(elements.get(elements.size()-1).equals("")){
