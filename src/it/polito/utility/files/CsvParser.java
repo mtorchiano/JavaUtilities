@@ -195,8 +195,9 @@ public class CsvParser {
 	 */
 	public void setSeparator(char sep){ 
 		separator=sep; 
-		regexp = "(\"(([^\"]*|\"\")*)\"|([^\""+separator+"]*))("+separator+"|$)";
-		p = Pattern.compile(regexp);
+		regexp = "(?<="+separator+"|^)\\s*(\"(?<qc>([^\"]*|\"\")*)\"|(?<c>[^\""+separator+"]*))\\s*(?="+separator+"|$)";
+		//regexp = "(\"(([^\"]*|\"\")*)\"|([^\""+separator+"]*))("+separator+"|$)";
+		pattern = Pattern.compile(regexp);
 	}
 
 	/**
@@ -290,8 +291,9 @@ public class CsvParser {
 			throw new IOException("The header line does not contain any separator character ('" + separator + "')");
 		}
 		final List<String>headers = parseCsvLine(firstLine);
+		final int nCol=headers.size();
 		return reader.lines().map(
-				line -> parseCsvLine(line).stream()
+				line -> parseCsvLine(line,nCol).stream()
 						//.map(String::trim)
 						.collect(LinkedHashMap::new,
 								(rowMap,element) -> rowMap.put(headers.get(rowMap.size()),element),
@@ -470,8 +472,9 @@ public class CsvParser {
 			throw new IOException("The header line does not contain any separator character ('" + separator + "')");
 		}
 		final List<String>headers = parseCsvLine(firstLine);
+		final int nCol=headers.size();
 		return reader.lines().map(
-				line -> parseCsvLine(line).stream()
+				line -> parseCsvLine(line,nCol).stream()
 						.collect((Supplier<Map<String,String>>)LinkedHashMap::new,
 								(rowMap,element) -> rowMap.put(headers.get(rowMap.size()),element),
 								(rm1,rm2) -> rm1.putAll(rm2)
@@ -513,8 +516,8 @@ public class CsvParser {
 		return new FileInputStream(cacheFile);				
 	}
 	
-	private String regexp = "(\"(([^\"]*|\"\")*)\"|([^\""+separator+"]*))("+separator+"|$)";
-	private Pattern p = Pattern.compile(regexp);
+	private String regexp = "(?<=,|^)\\s*(?<qc>\"(([^\"]*|\"\")*)\"|(?<c>[^\",]*))\\s*(,|$)";
+	private Pattern pattern = Pattern.compile(regexp);
 	/**
 	 * Parses a row from a CSV file and returns a list of strings
 	 * 
@@ -522,18 +525,19 @@ public class CsvParser {
 	 * @return the elements of the row
 	 */
 	private List<String> parseCsvLine(String line){
-		ArrayList<String> elements = new ArrayList<>();		
-		Matcher m = p.matcher(line);
+		return parseCsvLine(line,-1);
+	}
+	private List<String> parseCsvLine(String line,int nCol){
+		ArrayList<String> elements = (nCol==-1?new ArrayList<>():new ArrayList<>(nCol));		
+		Matcher m = pattern.matcher(line);
 		while(m.find()){
-			if(m.group(2)!=null){
-				elements.add(m.group(2).trim().replaceAll("\"\"", "\""));
-			}
-			if(m.group(4)!=null){
-				elements.add(m.group(1).trim().replaceAll("\"\"", "\""));
-			}
-		}
-		if(elements.get(elements.size()-1).equals("")){
-			elements.remove(elements.size()-1);
+			  String cell=m.group("qc");
+			  if(cell!=null){
+			    cell=cell.replaceAll("\"\"", "\"");
+			  }else{
+			    cell = m.group("c");
+			  }
+			  elements.add(cell);
 		}
 		return elements;
 	}
