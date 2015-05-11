@@ -96,7 +96,7 @@ import static java.util.Comparator.*;
  * 
  * 
  * @author Marco Torchiano
- * @version 1.1
+ * @version 1.1.1
  *
  */
 public class CsvParser {
